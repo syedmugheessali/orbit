@@ -90,7 +90,9 @@ const elements = {
 
 // ---------- 2. App data and settings ----------
 
-const STORAGE_KEY = "orbit-tasks-v1";
+// Version 2 starts with an empty task list. The new key prevents old
+// development/demo tasks saved under orbit-tasks-v1 from appearing after deploy.
+const STORAGE_KEY = "orbit-tasks-v2";
 const SETTINGS_KEY = "orbit-settings-v1";
 const DEFAULT_FOCUS_MINUTES = 25;
 const MIN_FOCUS_MINUTES = 1;
@@ -109,13 +111,17 @@ let currentView = "board";
 let draggedTaskId = null;
 let recentlyDeletedTask = null;
 let toastTimeout = null;
-let timerInterval = null;
+
+// setInterval() returns an ID. We store that ID so clearInterval() can stop
+// the exact repeating timer later. null means that no focus interval is active.
+let focusIntervalId = null;
+
 let focusSessionStarted = false;
 let selectedFocusMinutes = DEFAULT_FOCUS_MINUTES;
 let secondsRemaining = selectedFocusMinutes * 60;
 let lastKnownDate = "";
 
-// Load saved tasks. If there are none, start with a few useful examples.
+// Load only the tasks saved in this visitor's own browser.
 let tasks = loadTasks();
 
 // ---------- 3. Data helpers ----------
@@ -132,49 +138,8 @@ function loadTasks() {
         console.warn("Orbit could not read saved tasks:", error);
     }
 
-    return createStarterTasks();
-}
-
-function createStarterTasks() {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-
-    return [
-        {
-            id: createId(),
-            title: "Plan today's priorities",
-            notes: "Choose the tasks you want to complete today.",
-            category: "Personal",
-            dueDate: toDateInputValue(today),
-            priority: "high",
-            status: "now",
-            energy: "quick",
-            createdAt: Date.now()
-        },
-        {
-            id: createId(),
-            title: "Review JavaScript array methods",
-            notes: "Practice map, filter, and find with a tiny example.",
-            category: "Study",
-            dueDate: toDateInputValue(tomorrow),
-            priority: "medium",
-            status: "next",
-            energy: "steady",
-            createdAt: Date.now() + 1
-        },
-        {
-            id: createId(),
-            title: "Set up the week with a clear desk",
-            notes: "",
-            category: "Personal",
-            dueDate: "",
-            priority: "low",
-            status: "done",
-            energy: "quick",
-            createdAt: Date.now() + 2
-        }
-    ];
+    // A first-time visitor has no saved tasks, so begin with an empty array.
+    return [];
 }
 
 function saveTasks() {
@@ -900,7 +865,10 @@ function setFocusDuration(minutes, shouldSave = true) {
 }
 
 function toggleTimer() {
-    if (timerInterval) {
+    // If an interval ID already exists, the timer is running.
+    // Clicking the same button should pause it instead of starting a second
+    // interval on top of the first one.
+    if (focusIntervalId !== null) {
         pauseTimer();
         return;
     }
@@ -914,7 +882,9 @@ function toggleTimer() {
     elements.timerToggle.textContent = "Pause";
     updateHeaderFocusDisplay();
 
-    timerInterval = window.setInterval(() => {
+    // setInterval repeats this function every 1000 milliseconds (1 second).
+    // The returned ID is saved in focusIntervalId.
+    focusIntervalId = setInterval(function countDownOneSecond() {
         secondsRemaining -= 1;
         updateTimerDisplay();
 
@@ -926,8 +896,11 @@ function toggleTimer() {
 }
 
 function pauseTimer() {
-    window.clearInterval(timerInterval);
-    timerInterval = null;
+    // clearInterval needs the ID returned by setInterval.
+    if (focusIntervalId !== null) {
+        clearInterval(focusIntervalId);
+        focusIntervalId = null;
+    }
 
     if (secondsRemaining <= 0) {
         elements.timerToggle.textContent = "Restart";
@@ -966,7 +939,7 @@ function formatTimerTime(totalSeconds) {
 function updateHeaderFocusDisplay() {
     const totalSessionSeconds = selectedFocusMinutes * 60;
     const elapsedSeconds = Math.max(0, totalSessionSeconds - secondsRemaining);
-    const isRunning = Boolean(timerInterval);
+    const isRunning = focusIntervalId !== null;
     const isComplete = focusSessionStarted && secondsRemaining <= 0;
 
     elements.focusLabel.hidden = focusSessionStarted;
@@ -1120,7 +1093,7 @@ function updateDateAndGreeting() {
 }
 
 function startAutomaticDateUpdates() {
-    window.setInterval(updateDateAndGreeting, DATE_REFRESH_INTERVAL);
+    setInterval(updateDateAndGreeting, DATE_REFRESH_INTERVAL);
 
     // Browser timers may slow down in a background tab. Refresh immediately
     // when the user returns instead of waiting for the next interval.
