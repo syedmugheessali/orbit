@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Orbit is a friendly, local-first task planner for turning ideas into progress.">
+    <title>Orbit - Your personal task studio</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+
+                <div class="brand-mark" aria-hidden="true" title="Orbit logo">
+                    <span></span>
+                </div>
+                <div>
+                    <strong>orbit</strong>
+                    <small>task studio</small>
+                </div>
+                <button class="icon-button sidebar-close" id="sidebar-close" type="button" aria-label="Close menu">×</button>
+            </div>
+
+            <button class="add-task-button" id="open-task-modal" type="button">
+                <span aria-hidden="true">＋</span>
+                Create a task
+                <kbd>N</kbd>
+            </button>
+
+            <nav class="main-nav" aria-label="Task filters">
+                <p class="nav-label">Workspace</p>
+
+                <button class="nav-item active" type="button" data-smart-filter="all">
+                    <span class="nav-icon" aria-hidden="true">⌂</span>
+                    All tasks
+                    <span class="nav-count" id="all-count">0</span>
+                </button>
+                <button class="nav-item" type="button" data-smart-filter="today">
+                    <span class="nav-icon" aria-hidden="true">◷</span>
+                    Today
+                    <span class="nav-count" id="today-count">0</span>
+                </button>
+                <button class="nav-item" type="button" data-smart-filter="upcoming">
+                    <span class="nav-icon" aria-hidden="true">↗</span>
+                    Upcoming
+                    <span class="nav-count" id="upcoming-count">0</span>
+                </button>
+                <button class="nav-item" type="button" data-smart-filter="completed">
+                    <span class="nav-icon" aria-hidden="true">✓</span>
+                    Completed
+                    <span class="nav-count" id="completed-count">0</span>
+                </button>
+
+                <p class="nav-label nav-label-spaced">Spaces</p>
+
+                <button class="nav-item" type="button" data-category-filter="Personal">
+                    <span class="category-dot personal"></span>
+                    Personal
+                    <span class="nav-count" id="personal-count">0</span>
+                </button>
+                <button class="nav-item" type="button" data-category-filter="Study">
+                    <span class="category-dot study"></span>
+                    Study
+                    <span class="nav-count" id="study-count">0</span>
+                </button>
+                <button class="nav-item" type="button" data-category-filter="Work">
+                    <span class="category-dot work"></span>
+                    Work
+                    <span class="nav-count" id="work-count">0</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="theme-button" id="theme-toggle" type="button">
+                    <span id="theme-icon" aria-hidden="true">☾</span>
+                    <span id="theme-label">Dark mode</span>
+                </button>
+                <button class="icon-button" id="help-button" type="button" aria-label="Show keyboard shortcuts">?</button>
+            </div>
+        </aside>
+
+        <button class="sidebar-backdrop" id="sidebar-backdrop" type="button" aria-label="Close menu"></button>
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="icon-button menu-button" id="menu-button" type="button" aria-label="Open menu">☰</button>
+
+                <label class="search-box">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="search-input" type="search" placeholder="Search tasks..." autocomplete="off">
+                    <kbd>/</kbd>
+                </label>
+
+                <div class="topbar-actions">
+                    <button
+                        class="topbar-theme-button"
+                        id="quick-theme-toggle"
+                        type="button"
+                        data-theme-toggle
+                        aria-label="Switch to dark mode"
+                        title="Switch to dark mode"
+                    >
+                        <span id="quick-theme-icon" aria-hidden="true">☾</span>
+                    </button>
+                    <button class="focus-pill" id="focus-button" type="button">
+                        <span class="focus-button-icon" aria-hidden="true">◎</span>
+                        <span class="focus-label">Focus</span>
+                        <span class="focus-live" id="focus-live" hidden>
+                            <span class="focus-live-value">
+                                <strong id="header-time-left">25:00</strong>
+                                <small>left</small>
+                            </span>
+                            <i aria-hidden="true"></i>
+                            <span class="focus-live-value elapsed-value">
+                                <strong id="header-time-elapsed">00:00</strong>
+                                <small>elapsed</small>
+                            </span>
+                        </span>
+                    </button>
+                    <div class="date-badge" aria-label="Today's date">
+                        <span id="date-month">---</span>
+                        <strong id="date-day">--</strong>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <section class="welcome-row">
+                    <div>
+                        <p class="date-line" id="full-date">Today</p>
+                        <h1><span id="greeting">Welcome</span></h1>
+                        <p class="welcome-copy">Review your tasks and plan the day.</p>
+                    </div>
+                    <button class="mobile-add-button" id="mobile-add-task" type="button" aria-label="Create a task">＋</button>
+                </section>
+
+                <section class="progress-summary" aria-labelledby="progress-heading">
+                    <div class="progress-summary-heading">
+                        <h2 id="progress-heading">Progress</h2>
+                        <span id="progress-summary-text">0 of 0 tasks completed</span>
+                    </div>
+                    <div
+                        class="progress-track"
+                        id="progress-track"
+                        role="progressbar"
+                        aria-label="Task completion"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow="0"
+                    >
+                        <span id="progress-bar"></span>
+                    </div>
+                </section>
+
+                <section class="task-workspace" aria-labelledby="view-title">
+                    <div class="workspace-heading">
+                        <div>
+                            <h2 id="view-title">All tasks</h2>
+                        </div>
+
+                        <div class="workspace-controls">
+                            <label class="filter-select">
+                                <span class="sr-only">Filter by priority</span>
+                                <select id="priority-filter">
+                                    <option value="all">All priorities</option>
+                                    <option value="high">High priority</option>
+                                    <option value="medium">Medium priority</option>
+                                    <option value="low">Low priority</option>
+                                </select>
+                            </label>
+
+                            <div class="view-switcher" aria-label="Choose task view">
+                                <button class="active" id="board-view-button" type="button" aria-label="Board view" title="Board view">
+                                    <span aria-hidden="true">▦</span>
+                                </button>
+                                <button id="list-view-button" type="button" aria-label="List view" title="List view">
+                                    <span aria-hidden="true">☷</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="active-filters" id="active-filters" hidden>
+                        <span id="filter-description"></span>
+                        <button id="clear-filters" type="button">Clear filters</button>
+                    </div>
+
+                    <div class="board-view" id="board-view">
+                        <section class="board-column" data-status="now">
+                            <header class="column-heading">
+                                <div>
+                                    <span class="column-dot coral"></span>
+                                    <h3>Now</h3>
+                                    <span class="column-count" id="now-count">0</span>
+                                </div>
+                                <button type="button" class="column-add" data-add-status="now" aria-label="Add task to Now">＋</button>
+                            </header>
+                            <p class="column-note">Current tasks</p>
+                            <div class="task-column" id="now-column"></div>
+                        </section>
+
+                        <section class="board-column" data-status="next">
+                            <header class="column-heading">
+                                <div>
+                                    <span class="column-dot blue"></span>
+                                    <h3>Next</h3>
+                                    <span class="column-count" id="next-count">0</span>
+                                </div>
+                                <button type="button" class="column-add" data-add-status="next" aria-label="Add task to Next">＋</button>
+                            </header>
+                            <p class="column-note">Queued tasks</p>
+                            <div class="task-column" id="next-column"></div>
+                        </section>
+
+                        <section class="board-column" data-status="done">
+                            <header class="column-heading">
+                                <div>
+                                    <span class="column-dot green"></span>
+                                    <h3>Done</h3>
+                                    <span class="column-count" id="done-count">0</span>
+                                </div>
+                            </header>
+                            <p class="column-note">Completed tasks</p>
+                            <div class="task-column" id="done-column"></div>
+                        </section>
+                    </div>
+
+                    <div class="list-view" id="list-view" hidden>
+                        <div class="list-header">
+                            <span>Task</span>
+                            <span>Space</span>
+                            <span>Due</span>
+                            <span>Priority</span>
+                            <span></span>
+                        </div>
+                        <div id="task-list"></div>
+                    </div>
+
+                    <div class="empty-state" id="empty-state" hidden>
+                        <h3 id="empty-title">No tasks yet</h3>
+                        <p id="empty-message">Create a task to get started.</p>
+                        <button id="empty-add-button" type="button">Create my first task</button>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-backdrop" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+        <div class="modal-card">
+            <header class="modal-header">
+                <div>
+                    <h2 id="modal-title">Create a task</h2>
+                </div>
+                <button class="icon-button" id="close-task-modal" type="button" aria-label="Close">×</button>
+            </header>
+
+            <form id="task-form">
+                <input type="hidden" id="task-id">
+
+                <label class="form-field">
+                    <span>What needs doing?</span>
+                    <input id="task-title" type="text" maxlength="90" placeholder="e.g. Sketch the homepage layout" required>
+                    <small><span id="title-count">0</span>/90</small>
+                </label>
+
+                <label class="form-field">
+                    <span>Helpful notes <em>optional</em></span>
+                    <textarea id="task-notes" rows="3" maxlength="240" placeholder="Add a little context for your future self..."></textarea>
+                </label>
+
+                <div class="form-grid">
+                    <label class="form-field">
+                        <span>Space</span>
+                        <select id="task-category">
+                            <option value="Personal">Personal</option>
+                            <option value="Study">Study</option>
+                            <option value="Work">Work</option>
+                        </select>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Due date</span>
+                        <input id="task-date" type="date">
+                    </label>
+                </div>
+
+                <fieldset class="choice-field">
+                    <legend>Priority</legend>
+                    <div class="segmented-options priority-options">
+                        <label>
+                            <input type="radio" name="priority" value="low" checked>
+                            <span><i class="low"></i> Low</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="priority" value="medium">
+                            <span><i class="medium"></i> Medium</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="priority" value="high">
+                            <span><i class="high"></i> High</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <div class="form-grid">
+                    <label class="form-field">
+                        <span>Stage</span>
+                        <select id="task-status">
+                            <option value="now">Now</option>
+                            <option value="next">Next</option>
+                            <option value="done">Done</option>
+                        </select>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Energy needed</span>
+                        <select id="task-energy">
+                            <option value="quick">Short · 5–15 min</option>
+                            <option value="steady">Medium · 30–60 min</option>
+                            <option value="deep">Long · 1+ hour</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="form-message" id="form-message" role="alert"></div>
+
+                <footer class="modal-actions">
+                    <button class="secondary-button" id="cancel-task" type="button">Cancel</button>
+                    <button class="primary-button" type="submit">
+                        <span id="submit-label">Create task</span>
+                        <span aria-hidden="true">→</span>
+                    </button>
+                </footer>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="focus-modal" role="dialog" aria-modal="true" aria-labelledby="focus-title" hidden>
+        <div class="focus-card">
+            <button class="icon-button focus-close" id="close-focus-modal" type="button" aria-label="Close focus mode">×</button>
+            <h2 id="focus-title">Focus timer</h2>
+            <p id="focus-task-name">Move a task into “Now” to make it your focus.</p>
+
+            <div class="focus-duration-panel">
+                <span class="focus-duration-label">Choose a session length</span>
+                <div class="focus-presets" aria-label="Focus time presets">
+                    <button type="button" class="focus-preset" data-focus-minutes="15" aria-pressed="false">15 min</button>
+                    <button type="button" class="focus-preset active" data-focus-minutes="25" aria-pressed="true">25 min</button>
+                    <button type="button" class="focus-preset" data-focus-minutes="45" aria-pressed="false">45 min</button>
+                    <button type="button" class="focus-preset" data-focus-minutes="60" aria-pressed="false">60 min</button>
+                </div>
+                <div class="custom-focus-row">
+                    <label for="custom-focus-minutes">Custom</label>
+                    <input id="custom-focus-minutes" type="number" min="1" max="180" value="25" inputmode="numeric">
+                    <span>minutes</span>
+                    <button id="apply-focus-duration" type="button">Set time</button>
+                </div>
+                <small class="focus-duration-hint" id="focus-duration-hint">Choose any duration from 1 to 180 minutes.</small>
+            </div>
+
+            <div class="focus-timer" id="focus-timer">25:00</div>
+            <div class="focus-actions">
+                <button class="primary-button" id="timer-toggle" type="button">Start 25 min</button>
+                <button class="secondary-button" id="timer-reset" type="button">Reset</button>
+            </div>
+            <small>The timer continues when this window is closed.</small>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+        <div class="help-card">
+            <header class="modal-header">
+                <div>
+                    <h2 id="help-title">Keyboard shortcuts</h2>
+                </div>
+                <button class="icon-button" id="close-help-modal" type="button" aria-label="Close">×</button>
+            </header>
+            <div class="shortcut-list">
+                <div><span>Create a new task</span><kbd>N</kbd></div>
+                <div><span>Search your tasks</span><kbd>/</kbd></div>
+                <div><span>Close a window</span><kbd>Esc</kbd></div>
+                <div><span>Move task between stages</span><span>Drag card</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+        <span id="toast-icon">✓</span>
+        <span id="toast-message">Task saved</span>
+        <button id="toast-action" type="button" hidden>Undo</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title description">
+  <title id="title">Orbit logo mark</title>
+  <desc id="description">A purple circular planet with a tilted orbit and a coral satellite.</desc>
+  <g fill="none" stroke="#6D62E8" stroke-width="6">
+    <circle cx="60" cy="60" r="38"/>
+    <ellipse cx="60" cy="60" rx="53" ry="20" transform="rotate(-22 60 60)"/>
+  </g>
+  <circle cx="60" cy="60" r="6" fill="#EE806F"/>
+  <circle cx="108" cy="41" r="7" fill="#6D62E8"/>
+</svg>

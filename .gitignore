@@ -1,0 +1,16 @@
+# Editor-specific settings
+.vscode/
+
+# Temporary test and browser files
+.qa/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+
+# Local documentation
+*.md
