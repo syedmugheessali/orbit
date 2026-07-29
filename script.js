@@ -2,27 +2,23 @@
     ============================================================
     ORBIT TASK STUDIO
     ============================================================
-    This project intentionally uses plain JavaScript.
+    Orbit uses plain JavaScript and one predictable update cycle:
 
-    The app follows a simple cycle:
-    1. Store task data in an array.
-    2. Save that array in localStorage.
-    3. Render the array as HTML.
-    4. When the user changes something, repeat steps 2 and 3.
+    1. Read or change application data.
+    2. Save the data to localStorage.
+    3. Call renderApp() to redraw everything that depends on it.
 
-    This pattern is the small-scale version of how many larger
-    web applications work.
+    The recommendation system is rule-based. It does not call an
+    external service and does not modify the user's tasks.
 */
 
-// ---------- 1. Find the HTML elements we need ----------
+// ---------- 1. HTML elements ----------
 
 const elements = {
     taskForm: document.querySelector("#task-form"),
     taskModal: document.querySelector("#task-modal"),
-    focusModal: document.querySelector("#focus-modal"),
     helpModal: document.querySelector("#help-modal"),
     openTaskModal: document.querySelector("#open-task-modal"),
-    mobileAddTask: document.querySelector("#mobile-add-task"),
     emptyAddButton: document.querySelector("#empty-add-button"),
     closeTaskModal: document.querySelector("#close-task-modal"),
     cancelTask: document.querySelector("#cancel-task"),
@@ -33,11 +29,21 @@ const elements = {
     taskDate: document.querySelector("#task-date"),
     taskStatus: document.querySelector("#task-status"),
     taskEnergy: document.querySelector("#task-energy"),
+    taskDuration: document.querySelector("#task-duration"),
+    taskCustomDuration: document.querySelector("#task-custom-duration"),
+    customDurationField: document.querySelector("#custom-duration-field"),
     titleCount: document.querySelector("#title-count"),
     modalTitle: document.querySelector("#modal-title"),
     submitLabel: document.querySelector("#submit-label"),
     formMessage: document.querySelector("#form-message"),
     searchInput: document.querySelector("#search-input"),
+    quickAddToggle: document.querySelector("#quick-add-toggle"),
+    quickCapturePreview: document.querySelector("#quick-capture-preview"),
+    quickCaptureTitle: document.querySelector("#quick-capture-title"),
+    quickCaptureMeta: document.querySelector("#quick-capture-meta"),
+    quickCaptureMessage: document.querySelector("#quick-capture-message"),
+    quickCaptureAdd: document.querySelector("#quick-capture-add"),
+    quickCaptureCancel: document.querySelector("#quick-capture-cancel"),
     priorityFilter: document.querySelector("#priority-filter"),
     activeFilters: document.querySelector("#active-filters"),
     filterDescription: document.querySelector("#filter-description"),
@@ -51,12 +57,22 @@ const elements = {
     emptyState: document.querySelector("#empty-state"),
     emptyTitle: document.querySelector("#empty-title"),
     emptyMessage: document.querySelector("#empty-message"),
+    emptyWorkflow: document.querySelector("#empty-workflow"),
     nowColumn: document.querySelector("#now-column"),
     nextColumn: document.querySelector("#next-column"),
     doneColumn: document.querySelector("#done-column"),
     progressSummaryText: document.querySelector("#progress-summary-text"),
     progressTrack: document.querySelector("#progress-track"),
     progressBar: document.querySelector("#progress-bar"),
+    momentumPercent: document.querySelector("#momentum-percent"),
+    momentumFocusMinutes: document.querySelector("#momentum-focus-minutes"),
+    dailyTasksToday: document.querySelector("#daily-tasks-today"),
+    dailyHighPriority: document.querySelector("#daily-high-priority"),
+    dailyPlannedMinutes: document.querySelector("#daily-planned-minutes"),
+    recommendationHeading: document.querySelector("#recommendation-heading"),
+    recommendationMeta: document.querySelector("#recommendation-meta"),
+    recommendationReason: document.querySelector("#recommendation-reason"),
+    recommendationAction: document.querySelector("#recommendation-action"),
     themeToggle: document.querySelector("#theme-toggle"),
     themeIcon: document.querySelector("#theme-icon"),
     themeLabel: document.querySelector("#theme-label"),
@@ -66,17 +82,26 @@ const elements = {
     sidebarBackdrop: document.querySelector("#sidebar-backdrop"),
     menuButton: document.querySelector("#menu-button"),
     sidebarClose: document.querySelector("#sidebar-close"),
+    sidebarCollapse: document.querySelector("#sidebar-collapse"),
+    workspaceLayout: document.querySelector("#workspace-layout"),
+    focusPanel: document.querySelector("#focus-panel"),
+    focusPanelBackdrop: document.querySelector("#focus-panel-backdrop"),
     focusButton: document.querySelector("#focus-button"),
     focusButtonIcon: document.querySelector(".focus-button-icon"),
     focusLabel: document.querySelector(".focus-label"),
     focusLive: document.querySelector("#focus-live"),
     headerTimeLeft: document.querySelector("#header-time-left"),
     headerTimeElapsed: document.querySelector("#header-time-elapsed"),
-    closeFocusModal: document.querySelector("#close-focus-modal"),
+    closeFocusPanel: document.querySelector("#close-focus-panel"),
+    focusTitle: document.querySelector("#focus-title"),
     focusTaskName: document.querySelector("#focus-task-name"),
+    focusTaskMeta: document.querySelector("#focus-task-meta"),
     focusTimer: document.querySelector("#focus-timer"),
+    focusRingProgress: document.querySelector("#focus-ring-progress"),
+    focusStatus: document.querySelector("#focus-status"),
     timerToggle: document.querySelector("#timer-toggle"),
     timerReset: document.querySelector("#timer-reset"),
+    completeFocusTask: document.querySelector("#complete-focus-task"),
     customFocusMinutes: document.querySelector("#custom-focus-minutes"),
     applyFocusDuration: document.querySelector("#apply-focus-duration"),
     focusDurationHint: document.querySelector("#focus-duration-hint"),
@@ -88,18 +113,19 @@ const elements = {
     toastAction: document.querySelector("#toast-action")
 };
 
-// ---------- 2. App data and settings ----------
+// ---------- 2. Storage keys and application state ----------
 
-// Version 2 starts with an empty task list. The new key prevents old
-// development/demo tasks saved under orbit-tasks-v1 from appearing after deploy.
 const STORAGE_KEY = "orbit-tasks-v2";
 const SETTINGS_KEY = "orbit-settings-v1";
+const FOCUS_STORAGE_KEY = "orbit-focus-session-v1";
+const DAILY_FOCUS_KEY = "orbit-daily-focus-v1";
+const DEFAULT_TASK_MINUTES = 30;
 const DEFAULT_FOCUS_MINUTES = 25;
 const MIN_FOCUS_MINUTES = 1;
 const MAX_FOCUS_MINUTES = 180;
 const DATE_REFRESH_INTERVAL = 30 * 1000;
+const FOCUS_RING_CIRCUMFERENCE = 2 * Math.PI * 52;
 
-// The filters object remembers what the user is currently viewing.
 const filters = {
     smart: "all",
     category: "all",
@@ -107,72 +133,155 @@ const filters = {
     search: ""
 };
 
-let currentView = "board";
-let draggedTaskId = null;
-let recentlyDeletedTask = null;
-let toastTimeout = null;
-
-// setInterval() returns an ID. We store that ID so clearInterval() can stop
-// the exact repeating timer later. null means that no focus interval is active.
-let focusIntervalId = null;
-
-let focusSessionStarted = false;
-let selectedFocusMinutes = DEFAULT_FOCUS_MINUTES;
-let secondsRemaining = selectedFocusMinutes * 60;
-let lastKnownDate = "";
-
-// Load only the tasks saved in this visitor's own browser.
 let tasks = loadTasks();
+let currentView = "board";
+let currentEnergy = "normal";
+let sidebarCollapsed = false;
+let quickCaptureMode = false;
+let quickCaptureTask = null;
+let recommendedTaskId = null;
+let draggedTaskId = null;
+let lastKnownDate = "";
+let toastTimeout = null;
+let undoAction = null;
+let activeModal = null;
+let previouslyFocusedElement = null;
+let focusIntervalId = null;
+let focusSession = createEmptyFocusSession(DEFAULT_FOCUS_MINUTES);
 
-// ---------- 3. Data helpers ----------
+// ---------- 3. Safe task loading and migration ----------
 
 function loadTasks() {
     try {
-        const savedTasks = localStorage.getItem(STORAGE_KEY);
+        const savedValue = localStorage.getItem(STORAGE_KEY);
+        if (!savedValue) return [];
 
-        if (savedTasks) {
-            const parsedTasks = JSON.parse(savedTasks);
-            return Array.isArray(parsedTasks) ? parsedTasks : [];
+        const parsedValue = JSON.parse(savedValue);
+        if (!Array.isArray(parsedValue)) return [];
+
+        const migratedTasks = migrateTasks(parsedValue);
+        const changed = JSON.stringify(migratedTasks) !== JSON.stringify(parsedValue);
+
+        if (changed) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedTasks));
         }
+
+        return migratedTasks;
     } catch (error) {
         console.warn("Orbit could not read saved tasks:", error);
+        return [];
+    }
+}
+
+function migrateTasks(savedTasks) {
+    return savedTasks
+        .map((task) => migrateTask(task))
+        .filter(Boolean);
+}
+
+function migrateTask(task) {
+    if (!task || typeof task !== "object") return null;
+
+    const title = typeof task.title === "string" ? task.title.trim() : "";
+    if (!title) return null;
+
+    const legacyEnergyMinutes = {
+        quick: 15,
+        steady: 45,
+        deep: 60
+    };
+    const legacyEnergyNames = {
+        quick: "low",
+        steady: "normal",
+        deep: "high"
+    };
+
+    const oldStatus = task.status || task.stage;
+    let status = ["now", "next", "done"].includes(oldStatus)
+        ? oldStatus
+        : "next";
+
+    if (!task.status && !task.stage && task.completed === true) {
+        status = "done";
     }
 
-    // A first-time visitor has no saved tasks, so begin with an empty array.
-    return [];
+    const requestedMinutes = Number(task.estimatedMinutes);
+    const estimatedMinutes = isValidDuration(requestedMinutes)
+        ? Math.round(requestedMinutes)
+        : legacyEnergyMinutes[task.energy] || DEFAULT_TASK_MINUTES;
+
+    const energy = ["low", "normal", "high"].includes(task.energy)
+        ? task.energy
+        : legacyEnergyNames[task.energy] || "normal";
+
+    const categorySource = task.category || task.space;
+    const category = ["Personal", "Study", "Work"].includes(categorySource)
+        ? categorySource
+        : capitalize(String(categorySource || "Personal").toLowerCase());
+
+    return {
+        ...task,
+        id: String(task.id || createId()),
+        title,
+        notes: String(task.notes ?? task.description ?? ""),
+        category: ["Personal", "Study", "Work"].includes(category)
+            ? category
+            : "Personal",
+        dueDate: isDateInputValue(task.dueDate) ? task.dueDate : "",
+        priority: ["low", "medium", "high"].includes(task.priority)
+            ? task.priority
+            : "medium",
+        status,
+        energy,
+        estimatedMinutes,
+        completed: status === "done",
+        createdAt: Number(task.createdAt) || Date.now()
+    };
 }
 
 function saveTasks() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    } catch (error) {
+        console.warn("Orbit could not save tasks:", error);
+        showToast("Tasks could not be saved in this browser");
+    }
 }
 
 function createId() {
-    // Date.now gives the current time; the random text prevents duplicate IDs.
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return window.crypto.randomUUID();
+    }
+
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function toDateInputValue(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+function isValidDuration(value) {
+    return Number.isFinite(value) &&
+        Number.isInteger(value) &&
+        value >= MIN_FOCUS_MINUTES &&
+        value <= MAX_FOCUS_MINUTES;
 }
 
-function getTodayString() {
-    return toDateInputValue(new Date());
+function isDateInputValue(value) {
+    return typeof value === "string" &&
+        (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
-// ---------- 4. Rendering the application ----------
+// ---------- 4. Rendering ----------
 
 function renderApp() {
     const visibleTasks = getFilteredTasks();
 
     updateTaskCounts();
-    updateProgress();
+    renderDailyHeader();
+    renderDailyMomentum();
+    renderRecommendation();
     updateFilterMessage();
     renderBoard(visibleTasks);
     renderList(visibleTasks);
     updateEmptyState(visibleTasks);
+    renderFocusPanel();
 }
 
 function getFilteredTasks() {
@@ -191,14 +300,17 @@ function getFilteredTasks() {
 
         const matchesCategory =
             filters.category === "all" || task.category === filters.category;
-
         const matchesPriority =
             filters.priority === "all" || task.priority === filters.priority;
+        const searchableText =
+            `${task.title} ${task.notes} ${task.category}`.toLowerCase();
+        const matchesSearch =
+            searchableText.includes(filters.search.toLowerCase());
 
-        const searchableText = `${task.title} ${task.notes} ${task.category}`.toLowerCase();
-        const matchesSearch = searchableText.includes(filters.search.toLowerCase());
-
-        return matchesSmartFilter && matchesCategory && matchesPriority && matchesSearch;
+        return matchesSmartFilter &&
+            matchesCategory &&
+            matchesPriority &&
+            matchesSearch;
     });
 }
 
@@ -215,11 +327,12 @@ function renderBoard(visibleTasks) {
             .sort(sortTasks);
 
         if (columnTasks.length === 0) {
-            column.innerHTML = `
-                <div class="column-empty">
-                    ${status === "done" ? "Finished tasks land here." : "Drop a task here or use the + button."}
-                </div>
-            `;
+            const messages = {
+                now: "Move a task here when you are ready to begin.",
+                next: "Tasks planned for later will wait here.",
+                done: "Completed tasks remain visible here."
+            };
+            column.innerHTML = `<div class="column-empty">${messages[status]}</div>`;
             return;
         }
 
@@ -229,56 +342,76 @@ function renderBoard(visibleTasks) {
 
 function renderList(visibleTasks) {
     const sortedTasks = [...visibleTasks].sort(sortTasks);
-    elements.taskList.innerHTML = sortedTasks.map(createListTaskHTML).join("");
+    elements.taskList.innerHTML =
+        sortedTasks.map(createListTaskHTML).join("");
 }
 
 function sortTasks(firstTask, secondTask) {
     const priorityOrder = { high: 1, medium: 2, low: 3 };
 
-    // Tasks with a due date come before tasks without one.
     if (firstTask.dueDate && !secondTask.dueDate) return -1;
     if (!firstTask.dueDate && secondTask.dueDate) return 1;
 
-    // Earlier due dates come first.
     if (firstTask.dueDate !== secondTask.dueDate) {
         return firstTask.dueDate.localeCompare(secondTask.dueDate);
     }
 
-    // If dates match, higher priority comes first.
-    return priorityOrder[firstTask.priority] - priorityOrder[secondTask.priority];
+    return priorityOrder[firstTask.priority] -
+        priorityOrder[secondTask.priority];
 }
 
 function createTaskCardHTML(task) {
-    const safeTitle = escapeHTML(task.title);
-    const safeNotes = escapeHTML(task.notes);
     const categoryClass = task.category.toLowerCase();
-    const energyDetails = getEnergyDetails(task.energy);
     const dateDetails = getDateDetails(task.dueDate, task.status);
     const completedClass = task.status === "done" ? "completed" : "";
+    const safeTitle = escapeHTML(task.title);
+    const safeNotes = escapeHTML(task.notes);
 
     return `
-        <article class="task-card ${completedClass}" draggable="true" data-task-id="${task.id}">
-            <div class="task-card-top">
-                <span class="category-tag ${categoryClass}">${escapeHTML(task.category)}</span>
-                <button class="task-menu-button" type="button" data-action="menu" aria-label="Task options">•••</button>
-                <div class="task-menu" hidden>
-                    <button type="button" data-action="edit">Edit task</button>
-                    <button type="button" data-action="duplicate">Duplicate</button>
-                    <button class="danger" type="button" data-action="delete">Delete</button>
+        <article
+            class="task-card ${categoryClass} ${completedClass}"
+            draggable="true"
+            data-task-id="${escapeHTML(task.id)}"
+        >
+            <div class="task-card-main">
+                <div class="task-card-top">
+                    <span class="category-tag ${categoryClass}">${escapeHTML(task.category)}</span>
+                </div>
+                <h4 class="task-card-title">${safeTitle}</h4>
+                ${safeNotes ? `<p class="task-card-notes">${safeNotes}</p>` : ""}
+                <div class="task-card-info">
+                    <div class="task-info-line">
+                        <span class="task-date ${dateDetails.className}">${dateDetails.label}</span>
+                        <span class="separator">·</span>
+                        <span>${task.estimatedMinutes} min</span>
+                    </div>
+                    <div class="task-info-line">
+                        <span class="task-energy-text ${task.energy}">${capitalize(task.energy)} energy</span>
+                        <span class="separator">·</span>
+                        <span class="task-priority-text ${task.priority}">${capitalize(task.priority)} priority</span>
+                    </div>
                 </div>
             </div>
-            <h4 class="task-card-title">${safeTitle}</h4>
-            ${safeNotes ? `<p class="task-card-notes">${safeNotes}</p>` : ""}
-            <div class="task-card-meta">
-                <span class="task-date ${dateDetails.className}">${dateDetails.label}</span>
-                <span class="energy-tag" title="${energyDetails.fullLabel}">${energyDetails.shortLabel}</span>
-                <span class="priority-badge ${task.priority}" title="${capitalize(task.priority)} priority"></span>
+            <div class="task-card-actions">
+                ${task.status === "done" ? "" : `
+                    <button class="focus-task-button" type="button" data-action="focus">Focus</button>
+                `}
                 <button
                     class="complete-button ${task.status === "done" ? "checked" : ""}"
                     type="button"
-                    data-action="complete"
-                    aria-label="${task.status === "done" ? "Mark as not complete" : "Mark as complete"}"
+                    data-action="${task.status === "done" ? "restore" : "complete"}"
+                    aria-label="${task.status === "done" ? "Restore task to Next" : "Mark task complete"}"
                 >✓</button>
+                <div class="list-actions">
+                    <button
+                        class="task-menu-button"
+                        type="button"
+                        data-action="menu"
+                        aria-label="More options for ${safeTitle}"
+                        aria-expanded="false"
+                    >More</button>
+                    ${createTaskMenuHTML(task)}
+                </div>
             </div>
         </article>
     `;
@@ -288,34 +421,58 @@ function createListTaskHTML(task) {
     const categoryClass = task.category.toLowerCase();
     const dateDetails = getDateDetails(task.dueDate, task.status);
     const completedClass = task.status === "done" ? "completed" : "";
+    const safeTitle = escapeHTML(task.title);
 
     return `
-        <article class="list-task ${completedClass}" data-task-id="${task.id}">
+        <article class="list-task ${completedClass}" data-task-id="${escapeHTML(task.id)}">
             <div class="list-title-cell">
                 <button
                     class="complete-button ${task.status === "done" ? "checked" : ""}"
                     type="button"
-                    data-action="complete"
-                    aria-label="${task.status === "done" ? "Mark as not complete" : "Mark as complete"}"
+                    data-action="${task.status === "done" ? "restore" : "complete"}"
+                    aria-label="${task.status === "done" ? "Restore task to Next" : "Mark task complete"}"
                 >✓</button>
-                <strong title="${escapeHTML(task.title)}">${escapeHTML(task.title)}</strong>
+                <strong title="${safeTitle}">${safeTitle}</strong>
             </div>
             <span class="category-tag ${categoryClass}">${escapeHTML(task.category)}</span>
-            <span class="task-date ${dateDetails.className}">${dateDetails.label}</span>
+            <span class="list-task-due">
+                <span class="task-date ${dateDetails.className}">${dateDetails.label}</span>
+                <small>${task.estimatedMinutes} min · ${capitalize(task.energy)} energy</small>
+            </span>
             <span><i class="priority-badge ${task.priority}"></i> ${capitalize(task.priority)}</span>
             <div class="list-actions">
-                <button class="task-menu-button" type="button" data-action="menu" aria-label="Task options">•••</button>
-                <div class="task-menu" hidden>
-                    <button type="button" data-action="edit">Edit task</button>
-                    <button type="button" data-action="duplicate">Duplicate</button>
-                    <button class="danger" type="button" data-action="delete">Delete</button>
-                </div>
+                <button
+                    class="task-menu-button"
+                    type="button"
+                    data-action="menu"
+                    aria-label="More options for ${safeTitle}"
+                    aria-expanded="false"
+                >•••</button>
+                ${createTaskMenuHTML(task)}
             </div>
         </article>
     `;
 }
 
-function getDateDetails(dateString, status) {
+function createTaskMenuHTML(task) {
+    const isDone = task.status === "done";
+
+    return `
+        <div class="task-menu" role="menu" hidden>
+            ${isDone ? "" : `<button type="button" role="menuitem" data-action="focus">Start focus</button>`}
+            <button type="button" role="menuitem" data-action="edit">Edit task</button>
+            <button type="button" role="menuitem" data-action="move-now" ${task.status === "now" ? "disabled" : ""}>Move to Now</button>
+            <button type="button" role="menuitem" data-action="move-next" ${task.status === "next" ? "disabled" : ""}>Move to Next</button>
+            <button type="button" role="menuitem" data-action="${isDone ? "restore" : "complete"}">
+                ${isDone ? "Restore task" : "Mark complete"}
+            </button>
+            <button type="button" role="menuitem" data-action="duplicate">Duplicate</button>
+            <button class="danger" type="button" role="menuitem" data-action="delete">Delete</button>
+        </div>
+    `;
+}
+
+function getDateDetails(dateString, status = "next") {
     if (!dateString) {
         return { label: "No due date", className: "" };
     }
@@ -326,32 +483,28 @@ function getDateDetails(dateString, status) {
     const tomorrowString = toDateInputValue(tomorrow);
 
     if (dateString === today) {
-        return { label: "◷ Today", className: status === "done" ? "" : "today" };
+        return {
+            label: "Today",
+            className: status === "done" ? "" : "today"
+        };
     }
 
     if (dateString === tomorrowString) {
-        return { label: "◷ Tomorrow", className: "" };
+        return { label: "Tomorrow", className: "" };
     }
 
     if (dateString < today && status !== "done") {
-        return { label: "◷ Overdue", className: "overdue" };
+        return { label: "Overdue", className: "overdue" };
     }
 
     const date = new Date(`${dateString}T00:00:00`);
     return {
-        label: `◷ ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
+        label: date.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric"
+        }),
         className: ""
     };
-}
-
-function getEnergyDetails(energy) {
-    const options = {
-        quick: { shortLabel: "5–15 min", fullLabel: "Estimated time: 5–15 minutes" },
-        steady: { shortLabel: "30–60 min", fullLabel: "Estimated time: 30–60 minutes" },
-        deep: { shortLabel: "1+ hr", fullLabel: "Estimated time: 1 hour or more" }
-    };
-
-    return options[energy] || options.quick;
 }
 
 function updateTaskCounts() {
@@ -359,8 +512,12 @@ function updateTaskCounts() {
     const count = (test) => tasks.filter(test).length;
 
     setText("all-count", tasks.length);
-    setText("today-count", count((task) => task.dueDate === today && task.status !== "done"));
-    setText("upcoming-count", count((task) => task.dueDate > today && task.status !== "done"));
+    setText("today-count", count((task) =>
+        task.dueDate === today && task.status !== "done"
+    ));
+    setText("upcoming-count", count((task) =>
+        task.dueDate > today && task.status !== "done"
+    ));
     setText("completed-count", count((task) => task.status === "done"));
     setText("personal-count", count((task) => task.category === "Personal"));
     setText("study-count", count((task) => task.category === "Study"));
@@ -370,14 +527,42 @@ function updateTaskCounts() {
     setText("done-count", count((task) => task.status === "done"));
 }
 
-function updateProgress() {
-    const completed = tasks.filter((task) => task.status === "done").length;
-    const percentage = tasks.length === 0 ? 0 : Math.round((completed / tasks.length) * 100);
+function renderDailyHeader() {
+    const today = getTodayString();
+    const incompleteTasks = tasks.filter((task) => task.status !== "done");
+    const todayTasks = incompleteTasks.filter((task) => task.dueDate === today);
+    const highPriorityTasks = incompleteTasks.filter(
+        (task) => task.priority === "high"
+    );
+    const plannedMinutes = todayTasks.reduce(
+        (total, task) => total + task.estimatedMinutes,
+        0
+    );
+
+    elements.dailyTasksToday.textContent = todayTasks.length;
+    elements.dailyHighPriority.textContent = highPriorityTasks.length;
+    elements.dailyPlannedMinutes.textContent = plannedMinutes;
+}
+
+function renderDailyMomentum() {
+    const today = getTodayString();
+    const tasksDueToday = tasks.filter((task) => task.dueDate === today);
+    const completedToday = tasksDueToday.filter(
+        (task) => task.status === "done"
+    ).length;
+    const percentage = tasksDueToday.length === 0
+        ? 0
+        : Math.round((completedToday / tasksDueToday.length) * 100);
+    const focusedMinutes = Math.floor(getFocusedSecondsToday() / 60);
 
     elements.progressBar.style.width = `${percentage}%`;
     elements.progressTrack.setAttribute("aria-valuenow", String(percentage));
-    elements.progressSummaryText.textContent =
-        `${completed} of ${tasks.length} task${tasks.length === 1 ? "" : "s"} completed`;
+    elements.momentumPercent.textContent = `${percentage}%`;
+    elements.momentumFocusMinutes.textContent =
+        `${focusedMinutes} focused minute${focusedMinutes === 1 ? "" : "s"}`;
+    elements.progressSummaryText.textContent = tasksDueToday.length === 0
+        ? "No tasks due today"
+        : `${completedToday} of ${tasksDueToday.length} mission${tasksDueToday.length === 1 ? "" : "s"} completed`;
 }
 
 function updateFilterMessage() {
@@ -400,8 +585,9 @@ function updateFilterMessage() {
         completed: "Completed"
     };
 
-    elements.viewTitle.textContent =
-        filters.category !== "all" ? `${filters.category} tasks` : titleMap[filters.smart];
+    elements.viewTitle.textContent = filters.category !== "all"
+        ? `${filters.category} tasks`
+        : titleMap[filters.smart];
 }
 
 function updateEmptyState(visibleTasks) {
@@ -412,18 +598,135 @@ function updateEmptyState(visibleTasks) {
     elements.listView.hidden = isEmpty || currentView !== "list";
 
     if (tasks.length === 0) {
-        elements.emptyTitle.textContent = "No tasks yet";
-        elements.emptyMessage.textContent = "Create a task to get started.";
-        elements.emptyAddButton.textContent = "Create my first task";
+        elements.emptyTitle.textContent = "Start your first mission";
+        elements.emptyMessage.textContent =
+            "Create a task and move it through a simple Now, Next and Done workflow.";
+        elements.emptyAddButton.textContent = "Create your first mission";
+        elements.emptyWorkflow.hidden = false;
     } else {
         elements.emptyTitle.textContent = "No tasks found here";
         elements.emptyMessage.textContent =
-            "Try clearing a filter or search for something different.";
+            "Try clearing a filter or searching for something different.";
         elements.emptyAddButton.textContent = "Create another task";
+        elements.emptyWorkflow.hidden = true;
     }
 }
 
-// ---------- 5. Creating and editing tasks ----------
+// ---------- 5. Energy-aware recommendation ----------
+
+function calculateTaskScore(task, selectedEnergy) {
+    let score = 0;
+
+    const priorityScores = {
+        high: 30,
+        medium: 20,
+        low: 10
+    };
+    score += priorityScores[task.priority] || 10;
+
+    if (task.energy === selectedEnergy) score += 25;
+    if (isDueToday(task.dueDate)) score += 40;
+    if (isOverdue(task.dueDate)) score += 60;
+    if (task.status === "now") score += 20;
+
+    return score;
+}
+
+function getRecommendedTask() {
+    const openTasks = tasks.filter((task) => task.status !== "done");
+
+    return openTasks
+        .map((task) => ({
+            task,
+            score: calculateTaskScore(task, currentEnergy)
+        }))
+        .sort((first, second) => {
+            if (second.score !== first.score) {
+                return second.score - first.score;
+            }
+
+            return getDueDateSortValue(first.task.dueDate) -
+                getDueDateSortValue(second.task.dueDate);
+        })[0]?.task || null;
+}
+
+function renderRecommendation() {
+    const recommendedTask = getRecommendedTask();
+    const completedCount = tasks.filter(
+        (task) => task.status === "done"
+    ).length;
+
+    recommendedTaskId = recommendedTask?.id || null;
+    elements.recommendationAction.disabled = !recommendedTask;
+
+    if (!recommendedTask) {
+        if (tasks.length > 0 && completedCount === tasks.length) {
+            elements.recommendationHeading.textContent =
+                "Everything is complete";
+            elements.recommendationMeta.textContent =
+                "There are no open tasks to recommend.";
+            elements.recommendationReason.textContent =
+                "Restore a task or create a new one when you are ready.";
+        } else {
+            elements.recommendationHeading.textContent =
+                "Add a task to receive a recommendation";
+            elements.recommendationMeta.textContent =
+                "Orbit uses priority, deadline, stage and energy.";
+            elements.recommendationReason.textContent =
+                "Your recommendation updates whenever your tasks change.";
+        }
+        return;
+    }
+
+    const dateDetails = getDateDetails(
+        recommendedTask.dueDate,
+        recommendedTask.status
+    );
+    elements.recommendationHeading.textContent = recommendedTask.title;
+    elements.recommendationMeta.textContent =
+        `${recommendedTask.category} · ${capitalize(recommendedTask.priority)} priority · ` +
+        `${recommendedTask.estimatedMinutes} min · ${dateDetails.label}`;
+    elements.recommendationReason.textContent =
+        createRecommendationExplanation(recommendedTask);
+}
+
+function createRecommendationExplanation(task) {
+    const reasons = [];
+
+    if (isOverdue(task.dueDate)) reasons.push("overdue");
+    else if (isDueToday(task.dueDate)) reasons.push("due today");
+
+    if (task.priority === "high") reasons.push("high priority");
+    if (task.energy === currentEnergy) reasons.push("matches your energy");
+    if (task.status === "now") reasons.push("already in Now");
+
+    if (reasons.length === 0) {
+        reasons.push(`${task.priority} priority`);
+    }
+
+    return `Recommended because it is ${joinReasons(reasons)}.`;
+}
+
+function joinReasons(reasons) {
+    if (reasons.length === 1) return reasons[0];
+    if (reasons.length === 2) return `${reasons[0]} and ${reasons[1]}`;
+    return `${reasons.slice(0, -1).join(", ")} and ${reasons.at(-1)}`;
+}
+
+function getDueDateSortValue(dateString) {
+    if (!dateString) return Number.MAX_SAFE_INTEGER;
+    return new Date(`${dateString}T00:00:00`).getTime();
+}
+
+function isDueToday(dateString) {
+    return Boolean(dateString) && dateString === getTodayString();
+}
+
+function isOverdue(dateString) {
+    return Boolean(dateString) && dateString < getTodayString();
+}
+
+// ---------- 6. Creating and editing tasks ----------
 
 function openTaskForm(status = "now", taskToEdit = null) {
     elements.taskForm.reset();
@@ -437,15 +740,21 @@ function openTaskForm(status = "now", taskToEdit = null) {
         elements.taskDate.value = taskToEdit.dueDate;
         elements.taskStatus.value = taskToEdit.status;
         elements.taskEnergy.value = taskToEdit.energy;
+        setDurationFormValue(taskToEdit.estimatedMinutes);
         document.querySelector(
             `input[name="priority"][value="${taskToEdit.priority}"]`
         ).checked = true;
-        elements.modalTitle.textContent = "Edit your task";
+        elements.modalTitle.textContent = "Edit task";
         elements.submitLabel.textContent = "Save changes";
     } else {
         elements.taskId.value = "";
         elements.taskStatus.value = status;
-        elements.taskEnergy.value = "quick";
+        elements.taskEnergy.value = "normal";
+        elements.taskDuration.value = String(DEFAULT_TASK_MINUTES);
+        elements.customDurationField.hidden = true;
+        document.querySelector(
+            'input[name="priority"][value="medium"]'
+        ).checked = true;
         elements.modalTitle.textContent = "Create a task";
         elements.submitLabel.textContent = "Create task";
     }
@@ -461,31 +770,61 @@ function closeTaskForm() {
     elements.formMessage.textContent = "";
 }
 
+function setDurationFormValue(minutes) {
+    const presetValues = [15, 30, 45, 60];
+
+    if (presetValues.includes(minutes)) {
+        elements.taskDuration.value = String(minutes);
+        elements.customDurationField.hidden = true;
+    } else {
+        elements.taskDuration.value = "custom";
+        elements.taskCustomDuration.value = minutes;
+        elements.customDurationField.hidden = false;
+    }
+}
+
+function getDurationFromForm() {
+    const selectedValue = elements.taskDuration.value;
+    return selectedValue === "custom"
+        ? Number(elements.taskCustomDuration.value)
+        : Number(selectedValue);
+}
+
 function handleTaskSubmit(event) {
     event.preventDefault();
 
     const title = elements.taskTitle.value.trim();
+    const estimatedMinutes = getDurationFromForm();
 
     if (title.length < 2) {
-        elements.formMessage.textContent = "Please write at least 2 characters for the task.";
+        elements.formMessage.textContent =
+            "Please write at least 2 characters for the task.";
         elements.taskTitle.focus();
+        return;
+    }
+
+    if (!isValidDuration(estimatedMinutes)) {
+        elements.formMessage.textContent =
+            `Estimated time must be a whole number from ${MIN_FOCUS_MINUTES} to ${MAX_FOCUS_MINUTES}.`;
+        elements.taskCustomDuration.focus();
         return;
     }
 
     const selectedPriority = document.querySelector(
         'input[name="priority"]:checked'
     ).value;
-
+    const status = elements.taskStatus.value;
     const taskData = {
         title,
         notes: elements.taskNotes.value.trim(),
         category: elements.taskCategory.value,
         dueDate: elements.taskDate.value,
         priority: selectedPriority,
-        status: elements.taskStatus.value,
-        energy: elements.taskEnergy.value
+        status,
+        energy: elements.taskEnergy.value,
+        estimatedMinutes,
+        completed: status === "done"
     };
-
     const editingId = elements.taskId.value;
 
     if (editingId) {
@@ -505,8 +844,8 @@ function handleTaskSubmit(event) {
     }
 
     saveTasks();
-    renderApp();
     closeTaskForm();
+    renderApp();
 }
 
 function editTask(taskId) {
@@ -523,6 +862,7 @@ function duplicateTask(taskId) {
         id: createId(),
         title: `${originalTask.title} (copy)`,
         status: originalTask.status === "done" ? "next" : originalTask.status,
+        completed: false,
         createdAt: Date.now()
     });
 
@@ -535,49 +875,86 @@ function deleteTask(taskId) {
     const taskIndex = tasks.findIndex((task) => task.id === taskId);
     if (taskIndex === -1) return;
 
-    recentlyDeletedTask = tasks[taskIndex];
+    const removedTask = cloneTask(tasks[taskIndex]);
     tasks.splice(taskIndex, 1);
-    saveTasks();
-    renderApp();
-    showToast("Task removed", true);
-}
 
-function undoDelete() {
-    if (!recentlyDeletedTask) return;
-
-    tasks.push(recentlyDeletedTask);
-    recentlyDeletedTask = null;
-    saveTasks();
-    renderApp();
-    hideToast();
-}
-
-function toggleTaskComplete(taskId) {
-    const task = tasks.find((item) => item.id === taskId);
-    if (!task) return;
-
-    if (task.status === "done") {
-        task.status = "next";
-        showToast("Task moved back to Next");
-    } else {
-        task.status = "done";
-        showToast("Task completed");
+    if (focusSession.taskId === taskId) {
+        clearFocusSession();
+        closeFocusPanel(false);
     }
 
     saveTasks();
     renderApp();
+    setUndoAction("Task removed", () => {
+        tasks.splice(taskIndex, 0, removedTask);
+        saveTasks();
+        renderApp();
+    });
 }
 
-// ---------- 6. Click, filter, and view events ----------
+function completeTask(taskId) {
+    changeTaskStatus(
+        taskId,
+        "done",
+        "Mission completed · Daily momentum updated"
+    );
+}
+
+function restoreTask(taskId) {
+    changeTaskStatus(taskId, "next", "Task restored to Next");
+}
+
+function moveTask(taskId, newStatus) {
+    const statusLabels = {
+        now: "Now",
+        next: "Next",
+        done: "Done"
+    };
+    changeTaskStatus(
+        taskId,
+        newStatus,
+        `Task moved to ${statusLabels[newStatus]}`
+    );
+}
+
+function changeTaskStatus(taskId, newStatus, message) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task || task.status === newStatus) return;
+
+    const previousTask = cloneTask(task);
+    task.status = newStatus;
+    task.completed = newStatus === "done";
+
+    saveTasks();
+    renderApp();
+    setUndoAction(message, () => {
+        const taskToRestore = tasks.find((item) => item.id === taskId);
+        if (!taskToRestore) return;
+
+        Object.assign(taskToRestore, previousTask);
+        saveTasks();
+        renderApp();
+    });
+}
+
+function cloneTask(task) {
+    return { ...task };
+}
+
+// ---------- 7. Filters, views and task controls ----------
 
 elements.taskForm.addEventListener("submit", handleTaskSubmit);
 elements.openTaskModal.addEventListener("click", () => openTaskForm());
-elements.mobileAddTask.addEventListener("click", () => openTaskForm());
 elements.emptyAddButton.addEventListener("click", () => openTaskForm());
 elements.closeTaskModal.addEventListener("click", closeTaskForm);
 elements.cancelTask.addEventListener("click", closeTaskForm);
-
 elements.taskTitle.addEventListener("input", updateTitleCount);
+
+elements.taskDuration.addEventListener("change", () => {
+    const usesCustomValue = elements.taskDuration.value === "custom";
+    elements.customDurationField.hidden = !usesCustomValue;
+    if (usesCustomValue) elements.taskCustomDuration.focus();
+});
 
 function updateTitleCount() {
     elements.titleCount.textContent = elements.taskTitle.value.length;
@@ -616,6 +993,11 @@ function setActiveNavigation(activeButton) {
 }
 
 elements.searchInput.addEventListener("input", () => {
+    if (quickCaptureMode) {
+        updateQuickCapturePreview();
+        return;
+    }
+
     filters.search = elements.searchInput.value.trim();
     renderApp();
 });
@@ -635,7 +1017,9 @@ function clearAllFilters() {
 
     elements.searchInput.value = "";
     elements.priorityFilter.value = "all";
-    setActiveNavigation(document.querySelector('[data-smart-filter="all"]'));
+    setActiveNavigation(
+        document.querySelector('[data-smart-filter="all"]')
+    );
     renderApp();
 }
 
@@ -650,25 +1034,25 @@ function changeView(view) {
     saveSettings();
 }
 
-// Event delegation lets one listener handle all current and future task cards.
 elements.boardView.addEventListener("click", handleTaskAreaClick);
 elements.taskList.addEventListener("click", handleTaskAreaClick);
 
 function handleTaskAreaClick(event) {
     const actionButton = event.target.closest("[data-action]");
-    if (!actionButton) return;
-
-    const taskContainer = actionButton.closest("[data-task-id]");
+    const taskContainer = event.target.closest("[data-task-id]");
     if (!taskContainer) return;
 
     const taskId = taskContainer.dataset.taskId;
+
+    if (!actionButton) {
+        editTask(taskId);
+        return;
+    }
+
     const action = actionButton.dataset.action;
 
     if (action === "menu") {
-        const menu = actionButton.nextElementSibling;
-        const shouldOpen = menu.hidden;
-        closeAllTaskMenus();
-        menu.hidden = !shouldOpen;
+        toggleTaskMenu(actionButton);
     } else if (action === "edit") {
         editTask(taskId);
     } else if (action === "duplicate") {
@@ -676,12 +1060,38 @@ function handleTaskAreaClick(event) {
     } else if (action === "delete") {
         deleteTask(taskId);
     } else if (action === "complete") {
-        toggleTaskComplete(taskId);
+        completeTask(taskId);
+    } else if (action === "restore") {
+        restoreTask(taskId);
+    } else if (action === "move-now") {
+        moveTask(taskId, "now");
+    } else if (action === "move-next") {
+        moveTask(taskId, "next");
+    } else if (action === "focus") {
+        startFocusSession(taskId);
+    }
+
+    if (action !== "menu") closeAllTaskMenus();
+}
+
+function toggleTaskMenu(button) {
+    const menu = button.nextElementSibling;
+    const shouldOpen = menu.hidden;
+    closeAllTaskMenus();
+    menu.hidden = !shouldOpen;
+    button.setAttribute("aria-expanded", String(shouldOpen));
+
+    if (shouldOpen) {
+        const firstEnabledButton = menu.querySelector("button:not([disabled])");
+        firstEnabledButton?.focus();
     }
 }
 
 document.addEventListener("click", (event) => {
-    if (!event.target.closest(".task-menu") && !event.target.closest(".task-menu-button")) {
+    if (
+        !event.target.closest(".task-menu") &&
+        !event.target.closest(".task-menu-button")
+    ) {
         closeAllTaskMenus();
     }
 });
@@ -690,9 +1100,12 @@ function closeAllTaskMenus() {
     document.querySelectorAll(".task-menu").forEach((menu) => {
         menu.hidden = true;
     });
+    document.querySelectorAll(".task-menu-button").forEach((button) => {
+        button.setAttribute("aria-expanded", "false");
+    });
 }
 
-// ---------- 7. Drag and drop board ----------
+// ---------- 8. Drag and drop ----------
 
 elements.boardView.addEventListener("dragstart", (event) => {
     const card = event.target.closest(".task-card");
@@ -708,9 +1121,7 @@ elements.boardView.addEventListener("dragend", (event) => {
     const card = event.target.closest(".task-card");
     if (card) card.classList.remove("dragging");
 
-    document.querySelectorAll(".board-column").forEach((column) => {
-        column.classList.remove("drag-over");
-    });
+    clearDragStyles();
     draggedTaskId = null;
 });
 
@@ -718,7 +1129,9 @@ document.querySelectorAll(".board-column").forEach((column) => {
     column.addEventListener("dragover", (event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
-        column.classList.add("drag-over");
+        document.querySelectorAll(".board-column").forEach((item) => {
+            item.classList.toggle("drag-over", item === column);
+        });
     });
 
     column.addEventListener("dragleave", (event) => {
@@ -730,69 +1143,245 @@ document.querySelectorAll(".board-column").forEach((column) => {
     column.addEventListener("drop", (event) => {
         event.preventDefault();
         const newStatus = column.dataset.status;
-        const taskId = draggedTaskId || event.dataTransfer.getData("text/plain");
-        const task = tasks.find((item) => item.id === taskId);
+        const taskId =
+            draggedTaskId || event.dataTransfer.getData("text/plain");
+        moveTask(taskId, newStatus);
+        clearDragStyles();
+    });
+});
 
-        if (task && task.status !== newStatus) {
-            task.status = newStatus;
-            saveTasks();
-            renderApp();
-            showToast(`Task moved to ${capitalize(newStatus)}`);
-        }
-
+function clearDragStyles() {
+    document.querySelectorAll(".board-column").forEach((column) => {
         column.classList.remove("drag-over");
     });
-});
+}
 
-// ---------- 8. Theme and sidebar ----------
+// ---------- 9. Energy selection ----------
 
-document.querySelectorAll("[data-theme-toggle], #theme-toggle").forEach((button) => {
+document.querySelectorAll("[data-current-energy]").forEach((button) => {
     button.addEventListener("click", () => {
-        const isDark = document.documentElement.dataset.theme === "dark";
-        setTheme(isDark ? "light" : "dark");
+        setCurrentEnergy(button.dataset.currentEnergy);
         saveSettings();
+        renderApp();
     });
 });
 
+function setCurrentEnergy(energy) {
+    currentEnergy = ["low", "normal", "high"].includes(energy)
+        ? energy
+        : "normal";
+
+    document.querySelectorAll("[data-current-energy]").forEach((button) => {
+        const isActive = button.dataset.currentEnergy === currentEnergy;
+        button.setAttribute("aria-pressed", String(isActive));
+    });
+}
+
+// ---------- 10. Quick capture ----------
+
+elements.quickAddToggle.addEventListener("click", () => {
+    setQuickCaptureMode(!quickCaptureMode);
+});
+elements.quickCaptureCancel.addEventListener("click", () => {
+    setQuickCaptureMode(false);
+});
+elements.quickCaptureAdd.addEventListener("click", addQuickCaptureTask);
+
+function setQuickCaptureMode(isActive) {
+    quickCaptureMode = isActive;
+    quickCaptureTask = null;
+    filters.search = "";
+    elements.searchInput.value = "";
+    elements.quickAddToggle.setAttribute("aria-pressed", String(isActive));
+    elements.quickAddToggle.setAttribute(
+        "aria-label",
+        isActive ? "Return to search" : "Switch to quick capture"
+    );
+    elements.quickAddToggle.title =
+        isActive ? "Return to search" : "Quick capture";
+    elements.quickAddToggle.closest(".capture-area")
+        .classList.toggle("quick-mode", isActive);
+    elements.quickCapturePreview.hidden = !isActive;
+    elements.searchInput.placeholder = isActive
+        ? "Describe a task with simple keywords..."
+        : "Search tasks...";
+
+    if (isActive) {
+        updateQuickCapturePreview();
+        elements.searchInput.focus();
+    } else {
+        elements.quickCaptureMessage.textContent = "";
+        renderApp();
+    }
+}
+
+function parseQuickTask(input) {
+    const words = input.trim().split(/\s+/).filter(Boolean);
+    const titleWords = [];
+    const result = {
+        title: "",
+        notes: "",
+        category: "Personal",
+        dueDate: "",
+        priority: "medium",
+        status: "next",
+        energy: "normal",
+        estimatedMinutes: DEFAULT_TASK_MINUTES,
+        completed: false
+    };
+
+    words.forEach((originalWord) => {
+        const word = originalWord
+            .toLowerCase()
+            .replace(/^[,.;]+|[,.;]+$/g, "");
+        const durationMatch = word.match(/^(\d{1,3})m$/);
+
+        if (word === "today") {
+            result.dueDate = getTodayString();
+        } else if (word === "tomorrow") {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            result.dueDate = toDateInputValue(tomorrow);
+        } else if (["high", "medium", "low"].includes(word)) {
+            result.priority = word;
+        } else if (["personal", "study", "work"].includes(word)) {
+            result.category = capitalize(word);
+        } else if (
+            ["low-energy", "normal-energy", "high-energy"].includes(word)
+        ) {
+            result.energy = word.replace("-energy", "");
+        } else if (
+            durationMatch &&
+            isValidDuration(Number(durationMatch[1]))
+        ) {
+            result.estimatedMinutes = Number(durationMatch[1]);
+        } else {
+            titleWords.push(originalWord);
+        }
+    });
+
+    result.title = titleWords.join(" ").trim();
+    return result;
+}
+
+function updateQuickCapturePreview() {
+    const input = elements.searchInput.value;
+    quickCaptureTask = parseQuickTask(input);
+    const isValid = quickCaptureTask.title.length >= 2;
+
+    elements.quickCaptureTitle.textContent =
+        quickCaptureTask.title || "Describe a task";
+    elements.quickCaptureMeta.textContent =
+        `${getDateDetails(quickCaptureTask.dueDate).label} · ` +
+        `${capitalize(quickCaptureTask.priority)} priority · ` +
+        `${quickCaptureTask.estimatedMinutes} min · ` +
+        `${quickCaptureTask.category} · ${capitalize(quickCaptureTask.energy)} energy`;
+    elements.quickCaptureMessage.textContent =
+        input && !isValid
+            ? "Add a task name in addition to the command keywords."
+            : "";
+    elements.quickCaptureAdd.disabled = !isValid;
+}
+
+function addQuickCaptureTask() {
+    if (!quickCaptureTask || quickCaptureTask.title.length < 2) return;
+
+    tasks.push({
+        id: createId(),
+        ...quickCaptureTask,
+        createdAt: Date.now()
+    });
+    saveTasks();
+    setQuickCaptureMode(false);
+    renderApp();
+    showToast("Task added from quick capture");
+}
+
+// ---------- 11. Theme and sidebar ----------
+
+document.querySelectorAll("[data-theme-toggle], #theme-toggle").forEach(
+    (button) => {
+        button.addEventListener("click", () => {
+            const isDark =
+                document.documentElement.dataset.theme === "dark";
+            setTheme(isDark ? "light" : "dark");
+            saveSettings();
+        });
+    }
+);
+
 function setTheme(theme) {
-    if (theme === "dark") {
+    const isDark = theme === "dark";
+
+    if (isDark) {
         document.documentElement.dataset.theme = "dark";
-        elements.themeIcon.textContent = "☀";
-        elements.themeLabel.textContent = "Light mode";
-        elements.quickThemeIcon.textContent = "☀";
-        elements.quickThemeToggle.setAttribute("aria-label", "Switch to light mode");
-        elements.quickThemeToggle.title = "Switch to light mode";
     } else {
         delete document.documentElement.dataset.theme;
-        elements.themeIcon.textContent = "☾";
-        elements.themeLabel.textContent = "Dark mode";
-        elements.quickThemeIcon.textContent = "☾";
-        elements.quickThemeToggle.setAttribute("aria-label", "Switch to dark mode");
-        elements.quickThemeToggle.title = "Switch to dark mode";
     }
+
+    const icon = isDark ? "☀" : "☾";
+    const label = isDark ? "Light mode" : "Dark mode";
+    const actionLabel = isDark
+        ? "Switch to light mode"
+        : "Switch to dark mode";
+
+    elements.themeIcon.textContent = icon;
+    elements.themeLabel.textContent = label;
+    elements.quickThemeIcon.textContent = icon;
+    elements.quickThemeToggle.setAttribute("aria-label", actionLabel);
+    elements.quickThemeToggle.title = actionLabel;
 }
 
 elements.menuButton.addEventListener("click", openSidebar);
 elements.sidebarClose.addEventListener("click", closeSidebar);
 elements.sidebarBackdrop.addEventListener("click", closeSidebar);
+elements.sidebarCollapse.addEventListener("click", () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+    saveSettings();
+});
 
 function openSidebar() {
     elements.sidebar.classList.add("open");
     elements.sidebarBackdrop.classList.add("visible");
+    elements.menuButton.setAttribute("aria-expanded", "true");
 }
 
 function closeSidebar() {
     elements.sidebar.classList.remove("open");
     elements.sidebarBackdrop.classList.remove("visible");
+    elements.menuButton.setAttribute("aria-expanded", "false");
 }
 
-// ---------- 9. Focus timer ----------
+function setSidebarCollapsed(isCollapsed) {
+    sidebarCollapsed = Boolean(isCollapsed);
+    document.body.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    elements.sidebarCollapse.setAttribute(
+        "aria-pressed",
+        String(sidebarCollapsed)
+    );
+    elements.sidebarCollapse.setAttribute(
+        "aria-label",
+        sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+    );
+    elements.sidebarCollapse.title =
+        sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
+}
+
+// ---------- 12. Focus Orbit ----------
 
 elements.focusButton.addEventListener("click", openFocusMode);
-elements.closeFocusModal.addEventListener("click", closeFocusMode);
-elements.timerToggle.addEventListener("click", toggleTimer);
-elements.timerReset.addEventListener("click", resetTimer);
-elements.applyFocusDuration.addEventListener("click", applyCustomFocusDuration);
+elements.recommendationAction.addEventListener("click", () => {
+    if (recommendedTaskId) startFocusSession(recommendedTaskId);
+});
+elements.closeFocusPanel.addEventListener("click", () => closeFocusPanel());
+elements.focusPanelBackdrop.addEventListener("click", () => closeFocusPanel());
+elements.timerToggle.addEventListener("click", toggleFocusTimer);
+elements.timerReset.addEventListener("click", resetFocusSession);
+elements.completeFocusTask.addEventListener("click", completeFocusedTask);
+elements.applyFocusDuration.addEventListener(
+    "click",
+    applyCustomFocusDuration
+);
 
 document.querySelectorAll("[data-focus-minutes]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -807,27 +1396,101 @@ elements.customFocusMinutes.addEventListener("keydown", (event) => {
     }
 });
 
-function openFocusMode() {
-    const focusTask = tasks.find((task) => task.status === "now");
-    elements.focusTaskName.textContent = focusTask
-        ? focusTask.title
-        : "Move a task into “Now” to make it your focus.";
-    showModal(elements.focusModal);
+function createEmptyFocusSession(minutes) {
+    const durationSeconds = minutes * 60;
+    return {
+        taskId: null,
+        durationSeconds,
+        remainingSeconds: durationSeconds,
+        endTime: null,
+        started: false,
+        completionRecorded: false,
+        panelOpen: false
+    };
 }
 
-function closeFocusMode() {
-    hideModal(elements.focusModal);
+function startFocusSession(taskId) {
+    const task = tasks.find(
+        (item) => item.id === taskId && item.status !== "done"
+    );
+    if (!task) {
+        showToast("Choose an incomplete task to focus on");
+        return;
+    }
+
+    if (focusSession.taskId !== taskId) {
+        stopFocusTicker();
+        focusSession = createEmptyFocusSession(task.estimatedMinutes);
+        focusSession.taskId = taskId;
+    }
+
+    focusSession.panelOpen = true;
+    saveFocusSession();
+    showFocusPanel();
+    renderFocusPanel();
+}
+
+function openFocusMode() {
+    const savedTask = tasks.find(
+        (task) =>
+            task.id === focusSession.taskId &&
+            task.status !== "done"
+    );
+    const taskToFocus = savedTask ||
+        getRecommendedTask() ||
+        tasks.find((task) => task.status === "now");
+
+    if (!taskToFocus) {
+        showToast("Create an open task before starting focus");
+        return;
+    }
+
+    startFocusSession(taskToFocus.id);
+}
+
+function showFocusPanel() {
+    const isMobilePanel =
+        window.matchMedia("(max-width: 600px)").matches;
+
+    elements.focusPanel.hidden = false;
+    elements.focusPanelBackdrop.hidden = false;
+    elements.workspaceLayout.classList.add("focus-active");
+    document.body.classList.add("focus-panel-open");
+
+    if (isMobilePanel) {
+        elements.focusPanel.setAttribute("role", "dialog");
+        elements.focusPanel.setAttribute("aria-modal", "true");
+        document.body.style.overflow = "hidden";
+    } else {
+        elements.focusPanel.removeAttribute("role");
+        elements.focusPanel.removeAttribute("aria-modal");
+    }
+
+    window.setTimeout(() => elements.closeFocusPanel.focus(), 20);
+}
+
+function closeFocusPanel(shouldPause = true) {
+    if (shouldPause && focusSession.endTime) {
+        pauseFocusSession();
+    }
+
+    focusSession.panelOpen = false;
+    elements.focusPanel.hidden = true;
+    elements.focusPanelBackdrop.hidden = true;
+    elements.workspaceLayout.classList.remove("focus-active");
+    document.body.classList.remove("focus-panel-open");
+    elements.focusPanel.removeAttribute("role");
+    elements.focusPanel.removeAttribute("aria-modal");
+
+    if (!activeModal) document.body.style.overflow = "";
+    saveFocusSession();
+    updateHeaderFocusDisplay();
 }
 
 function applyCustomFocusDuration() {
     const requestedMinutes = Number(elements.customFocusMinutes.value);
 
-    if (
-        !Number.isFinite(requestedMinutes) ||
-        !Number.isInteger(requestedMinutes) ||
-        requestedMinutes < MIN_FOCUS_MINUTES ||
-        requestedMinutes > MAX_FOCUS_MINUTES
-    ) {
+    if (!isValidDuration(requestedMinutes)) {
         elements.focusDurationHint.textContent =
             `Enter a whole number from ${MIN_FOCUS_MINUTES} to ${MAX_FOCUS_MINUTES}.`;
         elements.focusDurationHint.classList.add("error");
@@ -835,7 +1498,7 @@ function applyCustomFocusDuration() {
         return;
     }
 
-    setFocusDuration(Math.round(requestedMinutes));
+    setFocusDuration(requestedMinutes);
 }
 
 function setFocusDuration(minutes, shouldSave = true) {
@@ -844,116 +1507,247 @@ function setFocusDuration(minutes, shouldSave = true) {
         Math.max(MIN_FOCUS_MINUTES, Math.round(Number(minutes)))
     );
 
-    pauseTimer();
-    focusSessionStarted = false;
-    selectedFocusMinutes = safeMinutes;
-    secondsRemaining = selectedFocusMinutes * 60;
-    elements.customFocusMinutes.value = selectedFocusMinutes;
+    stopFocusTicker();
+    focusSession.durationSeconds = safeMinutes * 60;
+    focusSession.remainingSeconds = focusSession.durationSeconds;
+    focusSession.endTime = null;
+    focusSession.started = false;
+    focusSession.completionRecorded = false;
+    elements.customFocusMinutes.value = safeMinutes;
     elements.focusDurationHint.textContent =
-        `Timer set to ${selectedFocusMinutes} minute${selectedFocusMinutes === 1 ? "" : "s"}.`;
+        `Timer set to ${safeMinutes} minute${safeMinutes === 1 ? "" : "s"}.`;
     elements.focusDurationHint.classList.remove("error");
-    elements.timerToggle.textContent = `Start ${selectedFocusMinutes} min`;
 
     document.querySelectorAll("[data-focus-minutes]").forEach((button) => {
-        const isActive = Number(button.dataset.focusMinutes) === selectedFocusMinutes;
+        const isActive = Number(button.dataset.focusMinutes) === safeMinutes;
         button.classList.toggle("active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
     });
 
-    updateTimerDisplay();
-    if (shouldSave) saveSettings();
+    if (shouldSave) saveFocusSession();
+    updateFocusDisplays();
 }
 
-function toggleTimer() {
-    // If an interval ID already exists, the timer is running.
-    // Clicking the same button should pause it instead of starting a second
-    // interval on top of the first one.
-    if (focusIntervalId !== null) {
-        pauseTimer();
+function toggleFocusTimer() {
+    if (!focusSession.taskId) return;
+
+    if (focusSession.endTime) {
+        pauseFocusSession();
         return;
     }
 
-    if (secondsRemaining <= 0) {
-        secondsRemaining = selectedFocusMinutes * 60;
-        updateTimerDisplay();
+    if (focusSession.remainingSeconds <= 0) {
+        focusSession.remainingSeconds = focusSession.durationSeconds;
+        focusSession.completionRecorded = false;
     }
 
-    focusSessionStarted = true;
-    elements.timerToggle.textContent = "Pause";
-    updateHeaderFocusDisplay();
-
-    // setInterval repeats this function every 1000 milliseconds (1 second).
-    // The returned ID is saved in focusIntervalId.
-    focusIntervalId = setInterval(function countDownOneSecond() {
-        secondsRemaining -= 1;
-        updateTimerDisplay();
-
-        if (secondsRemaining <= 0) {
-            pauseTimer();
-            showToast("Focus session complete! Take a short break.");
-        }
-    }, 1000);
+    focusSession.started = true;
+    focusSession.endTime =
+        Date.now() + focusSession.remainingSeconds * 1000;
+    saveFocusSession();
+    startFocusTicker();
+    updateFocusDisplays();
 }
 
-function pauseTimer() {
-    // clearInterval needs the ID returned by setInterval.
+function startFocusTicker() {
+    stopFocusTicker();
+    focusIntervalId = window.setInterval(syncFocusTimer, 1000);
+}
+
+function stopFocusTicker() {
     if (focusIntervalId !== null) {
-        clearInterval(focusIntervalId);
+        window.clearInterval(focusIntervalId);
         focusIntervalId = null;
     }
+}
 
-    if (secondsRemaining <= 0) {
+function syncFocusTimer() {
+    if (!focusSession.endTime) {
+        updateFocusDisplays();
+        return;
+    }
+
+    focusSession.remainingSeconds = Math.max(
+        0,
+        Math.ceil((focusSession.endTime - Date.now()) / 1000)
+    );
+
+    if (focusSession.remainingSeconds <= 0) {
+        focusSession.endTime = null;
+        stopFocusTicker();
+
+        if (!focusSession.completionRecorded) {
+            recordFocusedSeconds(focusSession.durationSeconds);
+            focusSession.completionRecorded = true;
+        }
+
+        saveFocusSession();
+        renderApp();
+        showToast("Focus session finished · Mark the task complete when ready");
+        return;
+    }
+
+    updateFocusDisplays();
+}
+
+function pauseFocusSession() {
+    if (focusSession.endTime) {
+        focusSession.remainingSeconds = Math.max(
+            0,
+            Math.ceil((focusSession.endTime - Date.now()) / 1000)
+        );
+    }
+
+    focusSession.endTime = null;
+    stopFocusTicker();
+    saveFocusSession();
+    updateFocusDisplays();
+}
+
+function resetFocusSession() {
+    stopFocusTicker();
+    focusSession.endTime = null;
+    focusSession.remainingSeconds = focusSession.durationSeconds;
+    focusSession.started = false;
+    focusSession.completionRecorded = false;
+    saveFocusSession();
+    updateFocusDisplays();
+}
+
+function completeFocusedTask() {
+    const focusedTask = tasks.find(
+        (task) => task.id === focusSession.taskId
+    );
+    if (!focusedTask || focusedTask.status === "done") return;
+
+    const elapsedSeconds = Math.max(
+        0,
+        focusSession.durationSeconds - getCurrentRemainingSeconds()
+    );
+
+    if (elapsedSeconds > 0 && !focusSession.completionRecorded) {
+        recordFocusedSeconds(elapsedSeconds);
+        focusSession.completionRecorded = true;
+    }
+
+    const taskId = focusedTask.id;
+    clearFocusSession();
+    closeFocusPanel(false);
+    completeTask(taskId);
+}
+
+function clearFocusSession() {
+    stopFocusTicker();
+    const defaultMinutes = Math.round(
+        focusSession.durationSeconds / 60
+    ) || DEFAULT_FOCUS_MINUTES;
+    focusSession = createEmptyFocusSession(defaultMinutes);
+    saveFocusSession();
+    updateHeaderFocusDisplay();
+}
+
+function getCurrentRemainingSeconds() {
+    if (!focusSession.endTime) return focusSession.remainingSeconds;
+    return Math.max(
+        0,
+        Math.ceil((focusSession.endTime - Date.now()) / 1000)
+    );
+}
+
+function renderFocusPanel() {
+    const focusedTask = tasks.find(
+        (task) => task.id === focusSession.taskId
+    );
+
+    if (!focusedTask) {
+        if (focusSession.panelOpen) closeFocusPanel(false);
+        updateHeaderFocusDisplay();
+        return;
+    }
+
+    if (focusSession.panelOpen) {
+        elements.focusPanel.hidden = false;
+        elements.focusPanelBackdrop.hidden = false;
+        elements.workspaceLayout.classList.add("focus-active");
+    }
+
+    elements.focusTitle.textContent = focusedTask.title;
+    elements.focusTaskName.textContent =
+        focusedTask.notes || "A focused session for this task.";
+    elements.focusTaskMeta.innerHTML = `
+        <span>${escapeHTML(focusedTask.category)}</span>
+        <span>${capitalize(focusedTask.priority)} priority</span>
+        <span>${capitalize(focusedTask.energy)} energy</span>
+        <span>${focusedTask.estimatedMinutes} min estimate</span>
+    `;
+    elements.completeFocusTask.disabled = focusedTask.status === "done";
+    updateFocusDisplays();
+}
+
+function updateFocusDisplays() {
+    const remainingSeconds = getCurrentRemainingSeconds();
+    focusSession.remainingSeconds = remainingSeconds;
+    const elapsedSeconds = Math.max(
+        0,
+        focusSession.durationSeconds - remainingSeconds
+    );
+    const progress = focusSession.durationSeconds === 0
+        ? 0
+        : elapsedSeconds / focusSession.durationSeconds;
+    const dashOffset =
+        FOCUS_RING_CIRCUMFERENCE * (1 - Math.min(1, progress));
+
+    elements.focusTimer.textContent = formatTimerTime(remainingSeconds);
+    elements.focusRingProgress.style.strokeDasharray =
+        String(FOCUS_RING_CIRCUMFERENCE);
+    elements.focusRingProgress.style.strokeDashoffset =
+        String(dashOffset);
+
+    if (focusSession.endTime) {
+        elements.timerToggle.textContent = "Pause";
+        elements.focusStatus.textContent = "Session in progress.";
+    } else if (remainingSeconds <= 0) {
         elements.timerToggle.textContent = "Restart";
-    } else if (secondsRemaining === selectedFocusMinutes * 60) {
-        elements.timerToggle.textContent = `Start ${selectedFocusMinutes} min`;
+        elements.focusStatus.textContent =
+            "Time is up. Complete the task when it is actually finished.";
+    } else if (!focusSession.started) {
+        elements.timerToggle.textContent = "Start";
+        elements.focusStatus.textContent = "Ready when you are.";
     } else {
-        elements.timerToggle.textContent = "Continue";
+        elements.timerToggle.textContent = "Resume";
+        elements.focusStatus.textContent = "Session paused.";
     }
 
     updateHeaderFocusDisplay();
-}
-
-function resetTimer() {
-    pauseTimer();
-    focusSessionStarted = false;
-    secondsRemaining = selectedFocusMinutes * 60;
-    updateTimerDisplay();
-    elements.timerToggle.textContent = `Start ${selectedFocusMinutes} min`;
-}
-
-function updateTimerDisplay() {
-    const minutes = Math.floor(secondsRemaining / 60);
-    const seconds = secondsRemaining % 60;
-    elements.focusTimer.textContent =
-        `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    updateHeaderFocusDisplay();
-}
-
-function formatTimerTime(totalSeconds) {
-    const safeSeconds = Math.max(0, totalSeconds);
-    const minutes = Math.floor(safeSeconds / 60);
-    const seconds = safeSeconds % 60;
-    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function updateHeaderFocusDisplay() {
-    const totalSessionSeconds = selectedFocusMinutes * 60;
-    const elapsedSeconds = Math.max(0, totalSessionSeconds - secondsRemaining);
-    const isRunning = focusIntervalId !== null;
-    const isComplete = focusSessionStarted && secondsRemaining <= 0;
+    const remainingSeconds = getCurrentRemainingSeconds();
+    const elapsedSeconds = Math.max(
+        0,
+        focusSession.durationSeconds - remainingSeconds
+    );
+    const isRunning = Boolean(focusSession.endTime);
+    const isComplete =
+        focusSession.started && remainingSeconds <= 0;
+    const hasSession = Boolean(focusSession.taskId && focusSession.started);
 
-    elements.focusLabel.hidden = focusSessionStarted;
-    elements.focusLive.hidden = !focusSessionStarted;
-    elements.focusButton.classList.toggle("timer-active", focusSessionStarted);
+    elements.focusLabel.hidden = hasSession;
+    elements.focusLive.hidden = !hasSession;
+    elements.focusButton.classList.toggle("timer-active", hasSession);
     elements.focusButton.classList.toggle("timer-running", isRunning);
     elements.focusButton.classList.toggle("timer-complete", isComplete);
+    elements.headerTimeLeft.textContent =
+        formatTimerTime(remainingSeconds);
+    elements.headerTimeElapsed.textContent =
+        formatTimerTime(elapsedSeconds);
 
-    elements.headerTimeLeft.textContent = formatTimerTime(secondsRemaining);
-    elements.headerTimeElapsed.textContent = formatTimerTime(elapsedSeconds);
-
-    if (!focusSessionStarted) {
-        elements.focusButton.setAttribute("aria-label", "Open focus timer");
-        elements.focusButton.title = "Open focus timer";
+    if (!hasSession) {
+        elements.focusButton.setAttribute(
+            "aria-label",
+            "Open Focus Orbit for the recommended task"
+        );
+        elements.focusButton.title = "Open Focus Orbit";
         return;
     }
 
@@ -962,18 +1756,119 @@ function updateHeaderFocusDisplay() {
     if (isComplete) stateText = "complete";
 
     const accessibleStatus =
-        `${formatTimerTime(secondsRemaining)} remaining, ` +
+        `${formatTimerTime(remainingSeconds)} remaining, ` +
         `${formatTimerTime(elapsedSeconds)} elapsed, timer ${stateText}. ` +
-        "Open focus timer.";
-
+        "Open Focus Orbit.";
     elements.focusButton.setAttribute("aria-label", accessibleStatus);
     elements.focusButton.title = accessibleStatus;
 }
 
-// ---------- 10. Modals, keyboard shortcuts, and toast ----------
+function formatTimerTime(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.round(totalSeconds));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
 
-elements.helpButton.addEventListener("click", () => showModal(elements.helpModal));
-elements.closeHelpModal.addEventListener("click", () => hideModal(elements.helpModal));
+function saveFocusSession() {
+    try {
+        localStorage.setItem(
+            FOCUS_STORAGE_KEY,
+            JSON.stringify(focusSession)
+        );
+    } catch (error) {
+        console.warn("Orbit could not save the focus session:", error);
+    }
+}
+
+function restoreFocusSession() {
+    try {
+        const savedValue = localStorage.getItem(FOCUS_STORAGE_KEY);
+        if (!savedValue) return;
+
+        const saved = JSON.parse(savedValue);
+        const taskExists = tasks.some(
+            (task) => task.id === saved.taskId && task.status !== "done"
+        );
+        const durationSeconds = Number(saved.durationSeconds);
+        const remainingSeconds = Number(saved.remainingSeconds);
+
+        if (!taskExists || !Number.isFinite(durationSeconds)) return;
+
+        focusSession = {
+            taskId: saved.taskId,
+            durationSeconds: Math.max(60, durationSeconds),
+            remainingSeconds: Number.isFinite(remainingSeconds)
+                ? Math.max(0, remainingSeconds)
+                : durationSeconds,
+            endTime: Number.isFinite(Number(saved.endTime))
+                ? Number(saved.endTime)
+                : null,
+            started: Boolean(saved.started),
+            completionRecorded: Boolean(saved.completionRecorded),
+            panelOpen: Boolean(saved.panelOpen)
+        };
+
+        elements.customFocusMinutes.value = Math.round(
+            focusSession.durationSeconds / 60
+        );
+
+        if (focusSession.endTime) {
+            syncFocusTimer();
+            if (focusSession.endTime) startFocusTicker();
+        }
+
+        if (focusSession.panelOpen) showFocusPanel();
+    } catch (error) {
+        console.warn("Orbit could not restore the focus session:", error);
+    }
+}
+
+function getFocusedSecondsToday() {
+    const today = getTodayString();
+
+    try {
+        const savedValue = JSON.parse(
+            localStorage.getItem(DAILY_FOCUS_KEY)
+        );
+
+        if (savedValue?.date === today) {
+            return Math.max(0, Number(savedValue.seconds) || 0);
+        }
+    } catch (error) {
+        console.warn("Orbit could not read daily focus time:", error);
+    }
+
+    return 0;
+}
+
+function recordFocusedSeconds(seconds) {
+    const safeSeconds = Math.max(0, Math.round(seconds));
+    const updatedSeconds = getFocusedSecondsToday() + safeSeconds;
+
+    try {
+        localStorage.setItem(
+            DAILY_FOCUS_KEY,
+            JSON.stringify({
+                date: getTodayString(),
+                seconds: updatedSeconds
+            })
+        );
+    } catch (error) {
+        console.warn("Orbit could not save daily focus time:", error);
+    }
+}
+
+// ---------- 13. Modals, keyboard shortcuts and undo toast ----------
+
+elements.helpButton.addEventListener("click", () => {
+    showModal(elements.helpModal);
+    window.setTimeout(() => elements.closeHelpModal.focus(), 20);
+});
+elements.closeHelpModal.addEventListener(
+    "click",
+    () => hideModal(elements.helpModal)
+);
 
 document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
     backdrop.addEventListener("click", (event) => {
@@ -985,30 +1880,61 @@ document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
 });
 
 function showModal(modal) {
+    previouslyFocusedElement = document.activeElement;
+    activeModal = modal;
     modal.hidden = false;
     document.body.style.overflow = "hidden";
 }
 
 function hideModal(modal) {
+    if (modal.hidden) return;
+
     modal.hidden = true;
+    if (activeModal === modal) activeModal = null;
 
     const anyModalOpen = [...document.querySelectorAll(".modal-backdrop")]
         .some((item) => !item.hidden);
+    const mobileFocusOpen =
+        focusSession.panelOpen &&
+        window.matchMedia("(max-width: 600px)").matches;
 
-    if (!anyModalOpen) document.body.style.overflow = "";
+    if (!anyModalOpen && !mobileFocusOpen) {
+        document.body.style.overflow = "";
+    }
+
+    if (previouslyFocusedElement instanceof HTMLElement) {
+        previouslyFocusedElement.focus();
+    }
 }
 
 document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && activeModal) {
+        trapFocus(event, activeModal);
+        return;
+    }
+
+    if (
+        event.key === "Tab" &&
+        focusSession.panelOpen &&
+        window.matchMedia("(max-width: 600px)").matches
+    ) {
+        trapFocus(event, elements.focusPanel);
+        return;
+    }
+
+    const activeElement = document.activeElement;
     const isTyping = ["INPUT", "TEXTAREA", "SELECT"].includes(
-        document.activeElement.tagName
+        activeElement.tagName
     );
 
     if (event.key === "Escape") {
         closeTaskForm();
-        closeFocusMode();
         hideModal(elements.helpModal);
+        closeFocusPanel();
         closeSidebar();
         closeAllTaskMenus();
+        if (quickCaptureMode) setQuickCaptureMode(false);
+        return;
     }
 
     if (isTyping) return;
@@ -1018,13 +1944,58 @@ document.addEventListener("keydown", (event) => {
         openTaskForm();
     }
 
+    if (event.key.toLowerCase() === "q") {
+        event.preventDefault();
+        setQuickCaptureMode(true);
+    }
+
     if (event.key === "/") {
         event.preventDefault();
+        if (quickCaptureMode) setQuickCaptureMode(false);
         elements.searchInput.focus();
     }
 });
 
-elements.toastAction.addEventListener("click", undoDelete);
+function trapFocus(event, container) {
+    const focusableElements = [...container.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), ' +
+        'select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    )].filter((item) => !item.hidden && item.offsetParent !== null);
+
+    if (focusableElements.length === 0) return;
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+    }
+}
+
+elements.toastAction.addEventListener("click", undoLastAction);
+elements.toast.addEventListener("mouseenter", pauseToastDismissal);
+elements.toast.addEventListener("mouseleave", resumeToastDismissal);
+elements.toast.addEventListener("focusin", pauseToastDismissal);
+elements.toast.addEventListener("focusout", resumeToastDismissal);
+
+function setUndoAction(message, action) {
+    undoAction = action;
+    showToast(message, true);
+}
+
+function undoLastAction() {
+    if (!undoAction) return;
+
+    const action = undoAction;
+    undoAction = null;
+    action();
+    hideToast();
+    showToast("Previous action undone");
+}
 
 function showToast(message, showUndo = false) {
     window.clearTimeout(toastTimeout);
@@ -1033,31 +2004,42 @@ function showToast(message, showUndo = false) {
     elements.toastIcon.textContent = showUndo ? "↶" : "✓";
     elements.toast.classList.add("visible");
 
-    toastTimeout = window.setTimeout(hideToast, showUndo ? 6000 : 3000);
+    if (!showUndo) undoAction = null;
+    scheduleToastDismissal(showUndo ? 7000 : 3500);
+}
+
+function scheduleToastDismissal(delay) {
+    window.clearTimeout(toastTimeout);
+    toastTimeout = window.setTimeout(hideToast, delay);
+}
+
+function pauseToastDismissal() {
+    window.clearTimeout(toastTimeout);
+}
+
+function resumeToastDismissal() {
+    if (elements.toast.classList.contains("visible")) {
+        scheduleToastDismissal(elements.toastAction.hidden ? 2500 : 5000);
+    }
 }
 
 function hideToast() {
     elements.toast.classList.remove("visible");
     window.clearTimeout(toastTimeout);
+    toastTimeout = null;
 }
 
-// ---------- 11. Small reusable utilities ----------
+// ---------- 14. Dates, settings and utilities ----------
 
-function setText(id, value) {
-    const element = document.getElementById(id);
-    if (element) element.textContent = value;
+function toDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
 }
 
-function capitalize(word) {
-    return word.charAt(0).toUpperCase() + word.slice(1);
-}
-
-function escapeHTML(value) {
-    // Text from users must be escaped before being placed inside HTML.
-    // This prevents typed HTML from becoming real page elements.
-    const temporaryElement = document.createElement("div");
-    temporaryElement.textContent = value || "";
-    return temporaryElement.innerHTML;
+function getTodayString() {
+    return toDateInputValue(new Date());
 }
 
 function getGreetingForHour(hour) {
@@ -1069,10 +2051,12 @@ function getGreetingForHour(hour) {
 function updateDateAndGreeting() {
     const now = new Date();
     const currentDate = toDateInputValue(now);
-    const greeting = getGreetingForHour(now.getHours());
 
-    setText("greeting", greeting);
-    setText("date-month", now.toLocaleDateString(undefined, { month: "short" }).toUpperCase());
+    setText("greeting", getGreetingForHour(now.getHours()));
+    setText(
+        "date-month",
+        now.toLocaleDateString(undefined, { month: "short" }).toUpperCase()
+    );
     setText("date-day", now.getDate());
     setText(
         "full-date",
@@ -1083,8 +2067,6 @@ function updateDateAndGreeting() {
         })
     );
 
-    // A tab can remain open overnight. Re-render date-sensitive filters,
-    // due-date labels, and counts when the visitor's local day changes.
     if (lastKnownDate && lastKnownDate !== currentDate) {
         renderApp();
     }
@@ -1093,38 +2075,55 @@ function updateDateAndGreeting() {
 }
 
 function startAutomaticDateUpdates() {
-    setInterval(updateDateAndGreeting, DATE_REFRESH_INTERVAL);
+    window.setInterval(updateDateAndGreeting, DATE_REFRESH_INTERVAL);
 
-    // Browser timers may slow down in a background tab. Refresh immediately
-    // when the user returns instead of waiting for the next interval.
     document.addEventListener("visibilitychange", () => {
-        if (!document.hidden) updateDateAndGreeting();
+        if (!document.hidden) {
+            updateDateAndGreeting();
+            syncFocusTimer();
+        }
     });
 
-    window.addEventListener("focus", updateDateAndGreeting);
+    window.addEventListener("focus", () => {
+        updateDateAndGreeting();
+        syncFocusTimer();
+    });
 }
 
 function saveSettings() {
     const settings = {
         theme: document.documentElement.dataset.theme || "light",
         view: currentView,
-        focusMinutes: selectedFocusMinutes
+        currentEnergy,
+        sidebarCollapsed
     };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (error) {
+        console.warn("Orbit could not save settings:", error);
+    }
 }
 
 function loadSettings() {
     try {
-        const savedSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+        const savedSettings = JSON.parse(
+            localStorage.getItem(SETTINGS_KEY)
+        );
 
-        if (savedSettings) {
+        if (savedSettings && typeof savedSettings === "object") {
             setTheme(savedSettings.theme);
-            currentView = savedSettings.view === "list" ? "list" : "board";
-            elements.boardViewButton.classList.toggle("active", currentView === "board");
-            elements.listViewButton.classList.toggle("active", currentView === "list");
-            setFocusDuration(
-                Number(savedSettings.focusMinutes) || DEFAULT_FOCUS_MINUTES,
-                false
+            currentView =
+                savedSettings.view === "list" ? "list" : "board";
+            setCurrentEnergy(savedSettings.currentEnergy || "normal");
+            setSidebarCollapsed(Boolean(savedSettings.sidebarCollapsed));
+            elements.boardViewButton.classList.toggle(
+                "active",
+                currentView === "board"
+            );
+            elements.listViewButton.classList.toggle(
+                "active",
+                currentView === "list"
             );
             return;
         }
@@ -1132,14 +2131,33 @@ function loadSettings() {
         console.warn("Orbit could not read saved settings:", error);
     }
 
-    // Respect the device color preference the first time the app opens.
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const prefersDark =
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
     setTheme(prefersDark ? "dark" : "light");
+    setCurrentEnergy("normal");
+    setSidebarCollapsed(false);
 }
 
-// ---------- 12. Start the app ----------
+function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value;
+}
+
+function capitalize(word) {
+    const safeWord = String(word || "");
+    return safeWord.charAt(0).toUpperCase() + safeWord.slice(1);
+}
+
+function escapeHTML(value) {
+    const temporaryElement = document.createElement("div");
+    temporaryElement.textContent = value || "";
+    return temporaryElement.innerHTML;
+}
+
+// ---------- 15. Start Orbit ----------
 
 loadSettings();
+restoreFocusSession();
 updateDateAndGreeting();
 renderApp();
 startAutomaticDateUpdates();
